@@ -47,6 +47,7 @@ class GridMedium;
 class RGBGridMedium;
 class CloudMedium;
 class NanoVDBMedium;
+class NoiseMedium;
 
 struct MediumProperties;
 
@@ -75,7 +76,7 @@ class RayMajorantIterator
 // Medium Definition
 class Medium
     : public TaggedPointer<  // Medium Types
-          HomogeneousMedium, GridMedium, RGBGridMedium, CloudMedium, NanoVDBMedium
+          HomogeneousMedium, GridMedium, RGBGridMedium, CloudMedium, NoiseMedium, NanoVDBMedium
 
           > {
   public:

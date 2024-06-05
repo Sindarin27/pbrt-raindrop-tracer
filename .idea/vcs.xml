@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/double-conversion" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/filesystem" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/glfw" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/libdeflate" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/lodepng" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/openexr" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/openvdb" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/ptex" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/qoi" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/stb" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/utf8proc" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/zlib" vcs="Git" />
+  </component>
+</project>
