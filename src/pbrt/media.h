@@ -431,6 +431,92 @@ class NoiseMedium {
 //    MajorantGrid majorantGrid;
 };
 
+// DotMedium Definition
+class DotMedium {
+  public:
+    // GridMedium Public Type Definitions
+//    using MajorantIterator = DDAMajorantIterator;
+    using MajorantIterator = HomogeneousMajorantIterator;
+
+    // GridMedium Public Methods
+    DotMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
+               Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold, Allocator alloc);
+
+    static DotMedium *Create(const ParameterDictionary &parameters,
+                              const Transform &renderFromMedium, const FileLoc *loc,
+                              Allocator alloc);
+
+    std::string ToString() const;
+
+    PBRT_CPU_GPU
+    bool IsEmissive() const { return false; }
+
+    PBRT_CPU_GPU
+    MediumProperties SamplePoint(Point3f p, const SampledWavelengths &lambda) const {
+        // Sample spectra for grid medium $\sigmaa$ and $\sigmas$
+        SampledSpectrum sigma_a = sigma_a_spec.Sample(lambda);
+        SampledSpectrum sigma_s = sigma_s_spec.Sample(lambda);
+
+        // Scale scattering coefficients by medium density at _p_
+        p = renderFromMedium.ApplyInverse(p);
+        p = Point3f(bounds.Offset(p));
+        Float cellX = std::floor(p.x + .5f),
+              cellY = std::floor(p.y + .5f),
+              cellZ = std::floor(p.z + .5f);
+//        Float magic = p.y;
+//        int intPart = (int)magic;
+//        Float d = std::abs(magic - (float)intPart); //densityGrid.Lookup(p);
+//        d = fmax(0.0000001f, d);
+//        Float d = (((int) p.x + (int) p.y) % 2 == 0 && ((int) p.z + (int) p.y) % 2 == 0) ? 1 : 0.0000001f;
+        //        Warning("%f", d);
+        Float d = 0;
+        if (Noise(cellX + .5f, cellY + .5f, cellZ + .5f) > threshold) {
+            d = 1;
+        }
+        
+        sigma_a *= d;
+        sigma_s *= d;
+
+        // Compute grid emission _Le_ at _p_
+        SampledSpectrum Le(0.f);
+
+        return MediumProperties{sigma_a, sigma_s, &phase, Le};
+    }
+
+    PBRT_CPU_GPU
+//    DDAMajorantIterator SampleRay(Ray ray, Float raytMax,
+//                                  const SampledWavelengths &lambda) const {
+//        // Transform ray to medium's space and compute bounds overlap
+//        ray = renderFromMedium.ApplyInverse(ray, &raytMax);
+//        Float tMin, tMax;
+//        if (!bounds.IntersectP(ray.o, ray.d, raytMax, &tMin, &tMax))
+//            return {};
+//        DCHECK_LE(tMax, raytMax);
+//
+//        // Sample spectra for grid medium $\sigmaa$ and $\sigmas$
+//        SampledSpectrum sigma_a = sigma_a_spec.Sample(lambda);
+//        SampledSpectrum sigma_s = sigma_s_spec.Sample(lambda);
+//
+//        SampledSpectrum sigma_t = sigma_a + sigma_s;
+//        return DDAMajorantIterator(ray, tMin, tMax, &majorantGrid, sigma_t);
+//    }
+        HomogeneousMajorantIterator SampleRay(Ray ray, Float tMax,
+                                              const SampledWavelengths &lambda) const {
+            SampledSpectrum sigma_a = sigma_a_spec.Sample(lambda);
+            SampledSpectrum sigma_s = sigma_s_spec.Sample(lambda);
+            return HomogeneousMajorantIterator(0, tMax, sigma_a + sigma_s);
+        }
+
+  private:
+    // DotMedium Private Members
+    Bounds3f bounds;
+    Transform renderFromMedium;
+    DenselySampledSpectrum sigma_a_spec, sigma_s_spec;
+    HGPhaseFunction phase;
+    Float threshold;
+//    MajorantGrid majorantGrid;
+};
+
 // RGBGridMedium Definition
 class RGBGridMedium {
   public:

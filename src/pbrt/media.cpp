@@ -408,6 +408,79 @@ std::string GridMedium::ToString() const {
                             " ]",
                             bounds, renderFromMedium, phase);
     }
+    
+    // NoiseMedium Method Definitions
+    DotMedium::DotMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
+                             Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold, Allocator alloc)
+            : bounds(bounds),
+              renderFromMedium(renderFromMedium),
+              sigma_a_spec(sigma_a, alloc),
+              sigma_s_spec(sigma_s, alloc),
+              phase(g),
+              threshold(threshold) {
+        sigma_a_spec.Scale(sigmaScale);
+        sigma_s_spec.Scale(sigmaScale);
+
+        // Currently not required due to the lack of grids. But keep this in mind if we do add any grids later!
+//        volumeGridBytes += LeScale.BytesAllocated();
+//        volumeGridBytes += densityGrid.BytesAllocated();
+//        if (temperatureGrid)
+//            volumeGridBytes += temperatureGrid->BytesAllocated();
+
+        // Currently not required because we don't use a majorant grid. But keep this in mind if we do use it later!
+        // Initialize _majorantGrid_ for _GridMedium_
+//        for (int z = 0; z < majorantGrid.res.z; ++z)
+//            for (int y = 0; y < majorantGrid.res.y; ++y)
+//                for (int x = 0; x < majorantGrid.res.x; ++x) {
+//                    Bounds3f bounds = majorantGrid.VoxelBounds(x, y, z);
+//                    majorantGrid.Set(x, y, z, densityGrid.MaxValue(bounds));
+//                }
+    }
+
+    DotMedium *DotMedium::Create(const ParameterDictionary &parameters,
+                                     const Transform &renderFromMedium, const FileLoc *loc,
+                                     Allocator alloc) {
+        std::vector<Float> density = parameters.GetFloatArray("density");
+        Float threshold = parameters.GetOneFloat("threshold", 0.f);
+
+//        size_t nDensity;
+//        if (density.empty())
+//            ErrorExit(loc, "No \"density\" value provided for grid medium.");
+//        nDensity = density.size();
+//        
+//        int nx = parameters.GetOneInt("nx", 1);
+//        int ny = parameters.GetOneInt("ny", 1);
+//        int nz = parameters.GetOneInt("nz", 1);
+//        if (nDensity != nx * ny * nz)
+//            ErrorExit(loc, "Grid medium has %d density values; expected nx*ny*nz = %d",
+//                      nDensity, nx * ny * nz);
+//
+//        // Create Density Grid
+//        SampledGrid<Float> densityGrid = SampledGrid<Float>(density, nx, ny, nz, alloc);
+        
+        Point3f p0 = parameters.GetOnePoint3f("p0", Point3f(0.f, 0.f, 0.f));
+        Point3f p1 = parameters.GetOnePoint3f("p1", Point3f(1.f, 1.f, 1.f));
+
+        Float g = parameters.GetOneFloat("g", 0.);
+        Spectrum sigma_a =
+                parameters.GetOneSpectrum("sigma_a", nullptr, SpectrumType::Unbounded, alloc);
+        if (!sigma_a)
+            sigma_a = alloc.new_object<ConstantSpectrum>(1.f);
+        Spectrum sigma_s =
+                parameters.GetOneSpectrum("sigma_s", nullptr, SpectrumType::Unbounded, alloc);
+        if (!sigma_s)
+            sigma_s = alloc.new_object<ConstantSpectrum>(1.f);
+        Float sigmaScale = parameters.GetOneFloat("scale", 1.f);
+        
+        return alloc.new_object<DotMedium>(
+                Bounds3f(p0, p1), renderFromMedium, sigma_a, sigma_s, sigmaScale, g, threshold, alloc);
+    }
+
+    std::string DotMedium::ToString() const {
+        return StringPrintf("[ GridMedium bounds: %s renderFromMedium: %s phase: %s "
+                            " ]",
+                            bounds, renderFromMedium, phase);
+    }
 
 
 // RGBGridMedium Method Definitions
@@ -755,6 +828,8 @@ Medium Medium::Create(const std::string &name, const ParameterDictionary &parame
         m = NanoVDBMedium::Create(parameters, renderFromMedium, loc, alloc);
     } else if (name == "noise") {
         m = NoiseMedium::Create(parameters, renderFromMedium, loc, alloc);
+    } else if (name == "dots") {
+        m = DotMedium::Create(parameters, renderFromMedium, loc, alloc);
     } else
         ErrorExit(loc, "%s: medium unknown.", name);
 
