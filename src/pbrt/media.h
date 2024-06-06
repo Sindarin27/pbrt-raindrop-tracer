@@ -360,7 +360,7 @@ class NoiseMedium {
 
     // GridMedium Public Methods
     NoiseMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
-               Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Allocator alloc);
+               Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold, Allocator alloc);
 
     static NoiseMedium *Create(const ParameterDictionary &parameters,
                               const Transform &renderFromMedium, const FileLoc *loc,
@@ -384,8 +384,10 @@ class NoiseMedium {
 //        int intPart = (int)magic;
 //        Float d = std::abs(magic - (float)intPart); //densityGrid.Lookup(p);
 //        d = fmax(0.0000001f, d);
-        Float d = ((int)p.x % 2 == 0 && (int)p.z % 2 == 0) ? 1 : 0.0000001f;
-                                                                         //        Warning("%f", d);
+//        Float d = (((int) p.x + (int) p.y) % 2 == 0 && ((int) p.z + (int) p.y) % 2 == 0) ? 1 : 0.0000001f;
+        //        Warning("%f", d);
+        Float d = Noise(p);
+        if (d < threshold) d = 0;
         sigma_a *= d;
         sigma_s *= d;
 
@@ -425,6 +427,7 @@ class NoiseMedium {
     Transform renderFromMedium;
     DenselySampledSpectrum sigma_a_spec, sigma_s_spec;
     HGPhaseFunction phase;
+    Float threshold;
 //    MajorantGrid majorantGrid;
 };
 

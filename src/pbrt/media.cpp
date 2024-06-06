@@ -338,12 +338,13 @@ std::string GridMedium::ToString() const {
 
 // NoiseMedium Method Definitions
     NoiseMedium::NoiseMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
-                             Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Allocator alloc)
+                             Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold, Allocator alloc)
             : bounds(bounds),
               renderFromMedium(renderFromMedium),
               sigma_a_spec(sigma_a, alloc),
               sigma_s_spec(sigma_s, alloc),
-              phase(g) {
+              phase(g),
+              threshold(threshold) {
         sigma_a_spec.Scale(sigmaScale);
         sigma_s_spec.Scale(sigmaScale);
 
@@ -367,6 +368,7 @@ std::string GridMedium::ToString() const {
                                      const Transform &renderFromMedium, const FileLoc *loc,
                                      Allocator alloc) {
         std::vector<Float> density = parameters.GetFloatArray("density");
+        Float threshold = parameters.GetOneFloat("threshold", 0.f);
 
 //        size_t nDensity;
 //        if (density.empty())
@@ -398,7 +400,7 @@ std::string GridMedium::ToString() const {
         Float sigmaScale = parameters.GetOneFloat("scale", 1.f);
         
         return alloc.new_object<NoiseMedium>(
-                Bounds3f(p0, p1), renderFromMedium, sigma_a, sigma_s, sigmaScale, g, alloc);
+                Bounds3f(p0, p1), renderFromMedium, sigma_a, sigma_s, sigmaScale, g, threshold, alloc);
     }
 
     std::string NoiseMedium::ToString() const {
