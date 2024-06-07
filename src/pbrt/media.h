@@ -470,8 +470,15 @@ class DotMedium {
 //        Float d = (((int) p.x + (int) p.y) % 2 == 0 && ((int) p.z + (int) p.y) % 2 == 0) ? 1 : 0.0000001f;
         //        Warning("%f", d);
         Float d = 0;
-        if (Noise(cellX + .5f, cellY + .5f, cellZ + .5f) > threshold) {
-            d = 1;
+        if (Noise(cellX + .5f, cellY + .5f, cellZ + .5f) > threshold) { // If this point's cell has a raindrop
+            // Calculate position of raindrop
+            Float radius = .05f;
+            Float maxShift = 0.5f - radius;
+            float centerX = cellX + maxShift * Noise(cellX + 1.5f, cellY + 2.8f, cellZ + 4.1f);
+            float centerY = cellY + maxShift * Noise(cellX + 5.4f, cellY + 6.7f, cellZ + 8.0f);
+            float centerZ = cellZ + maxShift * Noise(cellX + 9.3f, cellY + 10.6f, cellZ + 11.9f);
+            Vector3f diff = p - Point3f(centerX, centerY, centerZ);
+            if (LengthSquared(diff) < radius * radius) d = 1;
         }
         
         sigma_a *= d;
