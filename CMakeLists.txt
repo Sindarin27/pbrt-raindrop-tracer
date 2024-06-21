@@ -966,6 +966,22 @@ add_sanitizers (pbrt_exe)
 set_property (TARGET pbrt_exe PROPERTY FOLDER "cmd")
 
 ######################
+# Rain generator
+add_executable(rain_exe src/rain/rain.cpp)
+
+target_compile_definitions (rain_exe PRIVATE ${PBRT_DEFINITIONS})
+target_compile_options (rain_exe PRIVATE ${PBRT_CXX_FLAGS})
+target_include_directories (rain_exe PRIVATE src src/ext)
+target_link_libraries (rain_exe PRIVATE ${ALL_PBRT_LIBS} pbrt_opt pbrt_warnings)
+
+set_target_properties (rain_exe PROPERTIES OUTPUT_NAME rain)
+
+add_sanitizers (rain_exe)
+
+set_property (TARGET rain_exe PROPERTY FOLDER "cmd")
+
+
+######################
 # imgtool
 
 add_executable (imgtool src/pbrt/cmd/imgtool.cpp)

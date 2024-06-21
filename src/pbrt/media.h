@@ -32,7 +32,9 @@
 #include <limits>
 #include <memory>
 #include <vector>
-
+// When defined, drops are confined to the grid. Otherwise, drops can move into adjacent grid cells.
+// The second option is expected to provide a better spread of drops.
+//#define DROPS_CONFINED_TO_GRID_CELLS
 namespace pbrt {
 
 // Media Function Declarations
@@ -440,7 +442,8 @@ class DotMedium {
 
     // GridMedium Public Methods
     DotMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
-               Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold, Allocator alloc);
+               Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold,
+              Float shapeParameterInv, Float scaleParameter, Allocator alloc);
 
     static DotMedium *Create(const ParameterDictionary &parameters,
                               const Transform &renderFromMedium, const FileLoc *loc,
@@ -452,6 +455,37 @@ class DotMedium {
     bool IsEmissive() const { return false; }
 
     PBRT_CPU_GPU
+    inline bool cellHasDrop(const Float cellX, const Float cellY, const Float cellZ) const {
+        return HashFloat(cellX, cellY, cellZ, 1) > threshold;
+    }
+    
+    PBRT_CPU_GPU
+    inline Vector3f cellDropPosition(const Float cellX, const Float cellY, const Float cellZ, const Float radius) const {
+#ifdef DROPS_CONFINED_TO_GRID_CELLS
+        Float maxShift = 0.5f - radius;
+        Float centerX = cellX + maxShift * HashFloatWithNeg(cellX, cellY, cellZ, 2);
+        Float centerY = cellY + maxShift * HashFloatWithNeg(cellX, cellY, cellZ, 3);
+        Float centerZ = cellZ + maxShift * HashFloatWithNeg(cellX, cellY, cellZ, 4);
+#else
+        Float centerX = cellX + radius + HashFloat(cellX, cellY, cellZ, 2) - 0.5f;
+        Float centerY = cellY + radius + HashFloat(cellX, cellY, cellZ, 3) - 0.5f;
+        Float centerZ = cellZ + radius + HashFloat(cellX, cellY, cellZ, 4) - 0.5f;
+#endif
+        return {centerX, centerY, centerZ};
+    }
+    
+    PBRT_CPU_GPU
+    inline float cellDropRadius(const Float cellX, const Float cellY, const Float cellZ) const {
+        Float u = HashFloat(cellX, cellY, cellZ, 5);
+        return SampleWeibullDistributionWithInverseShape(shapeParameterInv, scaleParameter, u);
+    }
+    
+    PBRT_CPU_GPU
+    inline Float dropMoveDistanceInOneFrame(const Float radius) const {
+        return CalculateTerminalVelocityWobus(radius * 1e4f /* cm to micrometer */) * 1e2f /* m to cm */ * invShutterSpeed;
+    }
+    
+    PBRT_CPU_GPU
     MediumProperties SamplePoint(Point3f p, const SampledWavelengths &lambda) const {
         // Sample spectra for grid medium $\sigmaa$ and $\sigmas$
         SampledSpectrum sigma_a = sigma_a_spec.Sample(lambda);
@@ -460,25 +494,41 @@ class DotMedium {
         // Scale scattering coefficients by medium density at _p_
         p = renderFromMedium.ApplyInverse(p);
         p = Point3f(bounds.Offset(p));
-        Float cellX = std::floor(p.x + .5f),
-              cellY = std::floor(p.y + .5f),
-              cellZ = std::floor(p.z + .5f);
-//        Float magic = p.y;
-//        int intPart = (int)magic;
-//        Float d = std::abs(magic - (float)intPart); //densityGrid.Lookup(p);
-//        d = fmax(0.0000001f, d);
-//        Float d = (((int) p.x + (int) p.y) % 2 == 0 && ((int) p.z + (int) p.y) % 2 == 0) ? 1 : 0.0000001f;
-        //        Warning("%f", d);
+        Float sampleCellX = std::floor(p.x + 0.5f),
+              sampleCellY = std::floor(p.y + 0.5f),
+              sampleCellZ = std::floor(p.z + 0.5f);
         Float d = 0;
-        if (Noise(cellX + .5f, cellY + .5f, cellZ + .5f) > threshold) { // If this point's cell has a raindrop
-            // Calculate position of raindrop
-            Float radius = .05f;
-            Float maxShift = 0.5f - radius;
-            float centerX = cellX + maxShift * Noise(cellX + 1.5f, cellY + 2.8f, cellZ + 4.1f);
-            float centerY = cellY + maxShift * Noise(cellX + 5.4f, cellY + 6.7f, cellZ + 8.0f);
-            float centerZ = cellZ + maxShift * Noise(cellX + 9.3f, cellY + 10.6f, cellZ + 11.9f);
-            Vector3f diff = p - Point3f(centerX, centerY, centerZ);
-            if (LengthSquared(diff) < radius * radius) d = 1;
+#ifdef DROPS_CONFINED_TO_GRID_CELLS
+        Float cellX = sampleCellX;
+        Float cellZ = sampleCellZ;
+        for (Float cellY = sampleCellY; cellY < sampleCellY + 10.5f; cellY = std::floor(cellY + 1.1f)) { // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
+#else
+        for (Float cellX = sampleCellX - 1; cellX < sampleCellX + .5f; cellX = std::floor(cellX + 1.1f)) // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
+        for (Float cellZ = sampleCellZ - 1; cellZ < sampleCellZ + .5f; cellZ = std::floor(cellZ + 1.1f)) // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
+        for (Float cellY = sampleCellY - 1; cellY < sampleCellY + 10.5f; cellY = std::floor(cellY + 1.1f)) { // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
+#endif
+            if (cellHasDrop(cellX, cellY, cellZ)) { // If this point's cell has a raindrop
+                Float multiplier = 0.5f;
+                // Calculate position of raindrop
+                Float radius = cellDropRadius(cellX, cellY, cellZ);
+                Vector3f center = cellDropPosition(cellX, cellY, cellZ, radius);
+                Float dropMoveDistance = dropMoveDistanceInOneFrame(radius);
+
+                Float diffY = center.y - p.y;
+                if (diffY > 0) {
+                    diffY += dropMoveDistance;
+                    if (diffY < 0) { // Sample position is in the extended, straight part of the raindrop
+                        diffY = 0;
+                        multiplier = 1;
+                    }
+                }
+
+                Vector3f diff = Vector3f(center.x - p.x, diffY, center.z - p.z);
+                if (LengthSquared(diff) < radius * radius) { 
+                    if (d > 0.000001f) Warning("Holy shit a drop collided");
+                    d = (1 - radius) * multiplier; 
+                }
+            }
         }
         
         sigma_a *= d;
@@ -489,8 +539,67 @@ class DotMedium {
 
         return MediumProperties{sigma_a, sigma_s, &phase, Le};
     }
-
+    
+    /// \param invShape Shape parameter of the Weibull distribution, inverse (^-1). 
+    /// \param scale Scale parameter of the Weibull distribution.
+    /// \param u Sample parameter uniformly generated between 0 and 1
+    /// \return Sample of the Weibull distribution
     PBRT_CPU_GPU
+    static Float SampleWeibullDistributionWithInverseShape(Float invShape, Float scale, Float u) {
+        return scale * std::pow(-std::log(u), invShape);
+        
+    }
+    
+    /// \param R Rain intensity
+    /// \return Shape parameter of the Weibull distribution, inverse (^-1), for the DSD 
+    PBRT_CPU_GPU
+    static Float CalculateDsdInvShapeParameter(Float R) { return 1.05263f * std::pow(R, -0.14f); }
+    
+    /// \param R Rain intensity
+    /// \return Scale parameter of the Weibull distribution for the DSD, for micrometer radii TODO or diameter?
+    PBRT_CPU_GPU
+    static Float CalculateDsdScaleParameterMicrometer(Float R) { return 0.26e3f * std::pow(R, 0.44f); }
+    
+    /// \param R Rain intensity
+    /// \return Scale parameter of the Weibull distribution for the DSD, for centimeter radii TODO or diameter?
+    PBRT_CPU_GPU
+    static Float CalculateDsdScaleParameterCentimeter(Float R) { return 0.26e-1f * std::pow(R, 0.44f); }
+
+    /// Implementation of "Calculation of the Terminal Velocity of Water Drops" (4)
+    /// by Wobus, Murray & Koenig (1971)
+    /// \param r Radius in micrometer
+    /// \return Terminal velocity of drop in m/sec at T=20C, relative humidity 50%, pressure 760mm.
+    /// Result is negative due to physics convention that positive velocity is directed upwards.
+    PBRT_CPU_GPU
+    static Float CalculateTerminalVelocityWobus(Float r)
+        {
+            if (r <= 50)
+            {
+                return
+                        -1.197e-4f * r * r
+                        + 8.64e-11f * r * r * r * r * r
+                        + 1.44e-13f * r * r * r * r * r * r;
+            }
+            else if (r <= 230)
+            {
+                return -9e-3f * r + .18f;
+            } else if (r <= 450)
+            {
+                float B = 0.4f / (r - 210);
+                return -.008f * r - .07f + B;
+            }
+            else
+            {
+                float B = 0.4f / (r - 210);
+                float x = r - 450;
+                float D = 2.036791e-15f * x * x * x * x * x - 3.815343e-12f * x * x * x * x
+                          + 4.516634e-9f * x * x * x - 8.020389e-7f * x * x
+                          + 1.44274121e-3f * x + 1;
+                return 5.545f / D - 9.215f + B;
+            }
+        }
+
+//        PBRT_CPU_GPU
 //    DDAMajorantIterator SampleRay(Ray ray, Float raytMax,
 //                                  const SampledWavelengths &lambda) const {
 //        // Transform ray to medium's space and compute bounds overlap
@@ -507,6 +616,7 @@ class DotMedium {
 //        SampledSpectrum sigma_t = sigma_a + sigma_s;
 //        return DDAMajorantIterator(ray, tMin, tMax, &majorantGrid, sigma_t);
 //    }
+        PBRT_CPU_GPU
         HomogeneousMajorantIterator SampleRay(Ray ray, Float tMax,
                                               const SampledWavelengths &lambda) const {
             SampledSpectrum sigma_a = sigma_a_spec.Sample(lambda);
@@ -521,6 +631,8 @@ class DotMedium {
     DenselySampledSpectrum sigma_a_spec, sigma_s_spec;
     HGPhaseFunction phase;
     Float threshold;
+    Float scaleParameter, shapeParameterInv;
+    Float invShutterSpeed = 1.f / 100.f;
 //    MajorantGrid majorantGrid;
 };
 

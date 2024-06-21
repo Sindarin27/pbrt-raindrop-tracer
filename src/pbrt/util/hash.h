@@ -106,9 +106,16 @@ PBRT_CPU_GPU inline uint64_t Hash(Args... args) {
     return MurmurHash64A((const unsigned char *)buf, sz, 0);
 }
 
+// Range 0 to 1
 template <typename... Args>
 PBRT_CPU_GPU inline Float HashFloat(Args... args) {
     return uint32_t(Hash(args...)) * 0x1p-32f;
+}
+
+// Range -1 to 1
+template <typename... Args>
+PBRT_CPU_GPU inline Float HashFloatWithNeg(Args... args) {
+    return uint32_t(Hash(args...)) * 0x1p-31f - 1;
 }
 
 }  // namespace pbrt

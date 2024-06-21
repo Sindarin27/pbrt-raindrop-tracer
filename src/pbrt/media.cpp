@@ -411,13 +411,16 @@ std::string GridMedium::ToString() const {
     
     // NoiseMedium Method Definitions
     DotMedium::DotMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
-                             Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold, Allocator alloc)
+                             Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold, 
+                             Float shapeParameterInv, Float scaleParameter, Allocator alloc)
             : bounds(bounds),
               renderFromMedium(renderFromMedium),
               sigma_a_spec(sigma_a, alloc),
               sigma_s_spec(sigma_s, alloc),
               phase(g),
-              threshold(threshold) {
+              threshold(threshold),
+              shapeParameterInv(shapeParameterInv), 
+              scaleParameter(scaleParameter) {
         sigma_a_spec.Scale(sigmaScale);
         sigma_s_spec.Scale(sigmaScale);
 
@@ -442,7 +445,9 @@ std::string GridMedium::ToString() const {
                                      Allocator alloc) {
         std::vector<Float> density = parameters.GetFloatArray("density");
         Float threshold = parameters.GetOneFloat("threshold", 0.f);
-
+        Float rainfallRate = parameters.GetOneFloat("rate", 20.f);
+        Float shapeParameterInv = CalculateDsdInvShapeParameter(rainfallRate);
+        Float scaleParameter = CalculateDsdScaleParameterCentimeter(rainfallRate);
 //        size_t nDensity;
 //        if (density.empty())
 //            ErrorExit(loc, "No \"density\" value provided for grid medium.");
@@ -473,7 +478,7 @@ std::string GridMedium::ToString() const {
         Float sigmaScale = parameters.GetOneFloat("scale", 1.f);
         
         return alloc.new_object<DotMedium>(
-                Bounds3f(p0, p1), renderFromMedium, sigma_a, sigma_s, sigmaScale, g, threshold, alloc);
+                Bounds3f(p0, p1), renderFromMedium, sigma_a, sigma_s, sigmaScale, g, threshold, shapeParameterInv, scaleParameter, alloc);
     }
 
     std::string DotMedium::ToString() const {
