@@ -442,8 +442,8 @@ class DotMedium {
 
     // GridMedium Public Methods
     DotMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
-               Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, Float threshold,
-              Float shapeParameterInv, Float scaleParameter, Allocator alloc);
+               Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g,
+              Float shapeParameterInv, Float scaleParameter, int seed, Allocator alloc);
 
     static DotMedium *Create(const ParameterDictionary &parameters,
                               const Transform &renderFromMedium, const FileLoc *loc,
@@ -456,33 +456,34 @@ class DotMedium {
 
     PBRT_CPU_GPU
     inline bool cellHasDrop(const Float cellX, const Float cellY, const Float cellZ) const {
-        return HashFloat(cellX, cellY, cellZ, 1) > threshold;
+        return HashFloat(cellX, cellY, cellZ, 1, seed) > threshold;
     }
     
     PBRT_CPU_GPU
     inline Vector3f cellDropPosition(const Float cellX, const Float cellY, const Float cellZ, const Float radius) const {
 #ifdef DROPS_CONFINED_TO_GRID_CELLS
-        Float maxShift = 0.5f - radius;
+        Float maxShift = Float(0.5) - radius;
         Float centerX = cellX + maxShift * HashFloatWithNeg(cellX, cellY, cellZ, 2);
         Float centerY = cellY + maxShift * HashFloatWithNeg(cellX, cellY, cellZ, 3);
         Float centerZ = cellZ + maxShift * HashFloatWithNeg(cellX, cellY, cellZ, 4);
 #else
-        Float centerX = cellX + radius + HashFloat(cellX, cellY, cellZ, 2) - 0.5f;
-        Float centerY = cellY + radius + HashFloat(cellX, cellY, cellZ, 3) - 0.5f;
-        Float centerZ = cellZ + radius + HashFloat(cellX, cellY, cellZ, 4) - 0.5f;
+        Float centerX = cellX + radius + HashFloat(cellX, cellY, cellZ, 2, seed) - Float(0.5);
+        Float centerY = cellY + radius + HashFloat(cellX, cellY, cellZ, 3, seed) - Float(0.5);
+        Float centerZ = cellZ + radius + HashFloat(cellX, cellY, cellZ, 4, seed) - Float(0.5);
 #endif
         return {centerX, centerY, centerZ};
     }
     
     PBRT_CPU_GPU
     inline float cellDropRadius(const Float cellX, const Float cellY, const Float cellZ) const {
-        Float u = HashFloat(cellX, cellY, cellZ, 5);
-        return SampleWeibullDistributionWithInverseShape(shapeParameterInv, scaleParameter, u);
+        Float uniformRandom = HashFloat(cellX, cellY, cellZ, 5, seed);
+        Float radiusSampled = SampleWeibullDistributionWithInverseShape(shapeParameterInv, scaleParameter, uniformRandom);
+        return std::min(radiusSampled, Float(0.5));
     }
     
     PBRT_CPU_GPU
     inline Float dropMoveDistanceInOneFrame(const Float radius) const {
-        return CalculateTerminalVelocityWobus(radius * 1e4f /* cm to micrometer */) * 1e2f /* m to cm */ * invShutterSpeed;
+        return CalculateTerminalVelocityWobus(radius * Float(1e4) /* cm to micrometer */) * Float(1e2) /* m to cm */ * invShutterSpeed;
     }
     
     PBRT_CPU_GPU
@@ -494,40 +495,47 @@ class DotMedium {
         // Scale scattering coefficients by medium density at _p_
         p = renderFromMedium.ApplyInverse(p);
         p = Point3f(bounds.Offset(p));
-        Float sampleCellX = std::floor(p.x + 0.5f),
-              sampleCellY = std::floor(p.y + 0.5f),
-              sampleCellZ = std::floor(p.z + 0.5f);
+        Float sampleCellX = std::floor(p.x + Float(0.5)),
+              sampleCellY = std::floor(p.y + Float(0.5)),
+              sampleCellZ = std::floor(p.z + Float(0.5));
         Float d = 0;
 #ifdef DROPS_CONFINED_TO_GRID_CELLS
         Float cellX = sampleCellX;
         Float cellZ = sampleCellZ;
         for (Float cellY = sampleCellY; cellY < sampleCellY + 10.5f; cellY = std::floor(cellY + 1.1f)) { // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
 #else
-        for (Float cellX = sampleCellX - 1; cellX < sampleCellX + .5f; cellX = std::floor(cellX + 1.1f)) // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
-        for (Float cellZ = sampleCellZ - 1; cellZ < sampleCellZ + .5f; cellZ = std::floor(cellZ + 1.1f)) // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
-        for (Float cellY = sampleCellY - 1; cellY < sampleCellY + 10.5f; cellY = std::floor(cellY + 1.1f)) { // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
+        for (Float cellX = sampleCellX - 1; cellX < sampleCellX + Float(.5); cellX = std::floor(cellX + Float(1.1))) // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
+        for (Float cellZ = sampleCellZ - 1; cellZ < sampleCellZ + Float(.5); cellZ = std::floor(cellZ + Float(1.1))) // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
+        for (Float cellY = sampleCellY - 1; cellY < sampleCellY + Float(10.5); cellY = std::floor(cellY + Float(1.1))) { // NOLINT(*-flp30-c) using Float for-loop to avoid fidgeting with integers
 #endif
             if (cellHasDrop(cellX, cellY, cellZ)) { // If this point's cell has a raindrop
-                Float multiplier = 0.5f;
+//                if (cellX > 0 && cellY > 0 && cellZ > 0 && cellX < 55 && cellY < 55 && cellZ < 55) 
+//                    fprintf(stderr, "%f,%f,%f\n", cellX, cellY, cellZ);
+
                 // Calculate position of raindrop
                 Float radius = cellDropRadius(cellX, cellY, cellZ);
                 Vector3f center = cellDropPosition(cellX, cellY, cellZ, radius);
                 Float dropMoveDistance = dropMoveDistanceInOneFrame(radius);
 
-                Float diffY = center.y - p.y;
-                if (diffY > 0) {
-                    diffY += dropMoveDistance;
-                    if (diffY < 0) { // Sample position is in the extended, straight part of the raindrop
-                        diffY = 0;
-                        multiplier = 1;
-                    }
-                }
-
-                Vector3f diff = Vector3f(center.x - p.x, diffY, center.z - p.z);
-                if (LengthSquared(diff) < radius * radius) { 
-                    if (d > 0.000001f) Warning("Holy shit a drop collided");
-                    d = (1 - radius) * multiplier; 
-                }
+                Float diffX = center.x - p.x;
+                Float diffZ = center.z - p.z;
+                Float diffXzSq = diffX * diffX + diffZ * diffZ;
+                if (diffXzSq > radius * radius) continue; // Definitely outside the drop
+                
+                Float diffYTop = p.y - center.y; // Y dist to center when drop is at top of its movement
+                Float diffYBottom = diffYTop - dropMoveDistance; // Y dist to center when drop is at bottom of its movement
+                bool inTopSphere = diffXzSq + diffYTop * diffYTop < radius * radius;
+                bool inBottomSphere = diffXzSq + diffYBottom * diffYBottom < radius * radius;
+                
+                // If diffYTop < 0 and diffYBottom > 0
+                if (!inTopSphere && !inBottomSphere && (diffYTop > 0 || diffYBottom < 0)) continue;
+                if (d > Float(0.000001)) Warning("Holy shit a drop collided");
+                Float halfDropHeight = std::sqrt(radius * radius - diffXzSq);
+                Float dropHeight;
+                if (inTopSphere) dropHeight = halfDropHeight - diffYTop;
+                else if (inBottomSphere) dropHeight = halfDropHeight + diffYBottom;
+                else dropHeight = 2 * halfDropHeight;
+                d = dropHeight / -dropMoveDistance;
             }
         }
         
@@ -535,7 +543,7 @@ class DotMedium {
         sigma_s *= d;
 
         // Compute grid emission _Le_ at _p_
-        SampledSpectrum Le(0.f);
+        SampledSpectrum Le(Float(0));
 
         return MediumProperties{sigma_a, sigma_s, &phase, Le};
     }
@@ -550,20 +558,35 @@ class DotMedium {
         
     }
     
+    /// As in Sekine and Lind (1982)    
     /// \param R Rain intensity
     /// \return Shape parameter of the Weibull distribution, inverse (^-1), for the DSD 
     PBRT_CPU_GPU
-    static Float CalculateDsdInvShapeParameter(Float R) { return 1.05263f * std::pow(R, -0.14f); }
-    
+    static Float CalculateDsdInvShapeParameter(Float R) { return Float(1.05263) * std::pow(R, -Float(0.14)); }
+        
+    /// As in Sekine and Lind (1982)    
     /// \param R Rain intensity
-    /// \return Scale parameter of the Weibull distribution for the DSD, for micrometer radii TODO or diameter?
+    /// \return Scale parameter of the Weibull distribution for the DSD, for micrometer diameters
     PBRT_CPU_GPU
-    static Float CalculateDsdScaleParameterMicrometer(Float R) { return 0.26e3f * std::pow(R, 0.44f); }
-    
+    static Float CalculateDsdScaleParameterMicrometerDiameter(Float R) { return Float(0.26e3) * std::pow(R, Float(0.44)); }
+
+    /// As in Sekine and Lind (1982)  
     /// \param R Rain intensity
-    /// \return Scale parameter of the Weibull distribution for the DSD, for centimeter radii TODO or diameter?
+    /// \return Scale parameter of the Weibull distribution for the DSD, for centimeter diameters
     PBRT_CPU_GPU
-    static Float CalculateDsdScaleParameterCentimeter(Float R) { return 0.26e-1f * std::pow(R, 0.44f); }
+    static Float CalculateDsdScaleParameterCentimeterDiameter(Float R) { return Float(0.26e-1) * std::pow(R, Float(0.44)); }
+        
+    /// As in Sekine and Lind (1982)    
+    /// \param R Rain intensity
+    /// \return Scale parameter of the Weibull distribution for the DSD, for micrometer diameters
+    PBRT_CPU_GPU
+    static Float CalculateDsdScaleParameterMicrometerRadius(Float R) { return Float(0.13e3f) * std::pow(R, Float(0.44)); }
+
+    /// As in Sekine and Lind (1982)  
+    /// \param R Rain intensity
+    /// \return Scale parameter of the Weibull distribution for the DSD, for centimeter diameters
+    PBRT_CPU_GPU
+    static Float CalculateDsdScaleParameterCentimeterRadius(Float R) { return Float(0.13e-1) * std::pow(R, Float(0.44)); }
 
     /// Implementation of "Calculation of the Terminal Velocity of Water Drops" (4)
     /// by Wobus, Murray & Koenig (1971)
@@ -576,26 +599,26 @@ class DotMedium {
             if (r <= 50)
             {
                 return
-                        -1.197e-4f * r * r
-                        + 8.64e-11f * r * r * r * r * r
-                        + 1.44e-13f * r * r * r * r * r * r;
+                        -Float(1.197e-4) * r * r
+                        + Float(8.64e-11) * r * r * r * r * r
+                        + Float(1.44e-13) * r * r * r * r * r * r;
             }
             else if (r <= 230)
             {
-                return -9e-3f * r + .18f;
+                return -Float(9e-3) * r + Float(.18);
             } else if (r <= 450)
             {
-                float B = 0.4f / (r - 210);
-                return -.008f * r - .07f + B;
+                float B = Float(0.4) / (r - 210);
+                return Float(-.008) * r - Float(.07) + B;
             }
             else
             {
-                float B = 0.4f / (r - 210);
+                float B = Float(0.4) / (r - 210);
                 float x = r - 450;
-                float D = 2.036791e-15f * x * x * x * x * x - 3.815343e-12f * x * x * x * x
-                          + 4.516634e-9f * x * x * x - 8.020389e-7f * x * x
-                          + 1.44274121e-3f * x + 1;
-                return 5.545f / D - 9.215f + B;
+                float D = Float(2.036791e-15) * x * x * x * x * x - Float(3.815343e-12) * x * x * x * x
+                          + Float(4.516634e-9) * x * x * x - Float(8.020389e-7) * x * x
+                          + Float(1.44274121e-3) * x + 1;
+                return Float(5.545) / D - Float(9.215) + B;
             }
         }
 
@@ -619,8 +642,8 @@ class DotMedium {
         PBRT_CPU_GPU
         HomogeneousMajorantIterator SampleRay(Ray ray, Float tMax,
                                               const SampledWavelengths &lambda) const {
-            SampledSpectrum sigma_a = sigma_a_spec.Sample(lambda);
-            SampledSpectrum sigma_s = sigma_s_spec.Sample(lambda);
+            SampledSpectrum sigma_a = Float(0.0625) * sigma_a_spec.Sample(lambda);
+            SampledSpectrum sigma_s = Float(0.0625) * sigma_s_spec.Sample(lambda);
             return HomogeneousMajorantIterator(0, tMax, sigma_a + sigma_s);
         }
 
@@ -632,6 +655,7 @@ class DotMedium {
     HGPhaseFunction phase;
     Float threshold;
     Float scaleParameter, shapeParameterInv;
+    int seed;
     Float invShutterSpeed = 1.f / 100.f;
 //    MajorantGrid majorantGrid;
 };

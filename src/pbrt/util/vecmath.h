@@ -1330,6 +1330,17 @@ class Bounds3 {
             o.z /= pMax.z - pMin.z;
         return o;
     }
+    
+    PBRT_CPU_GPU
+    Vector3f OffsetReverse(Point3f p) const {
+        if (pMax.x > pMin.x)
+            p.x *= pMax.x - pMin.x;
+        if (pMax.y > pMin.y)
+            p.y *= pMax.y - pMin.y;
+        if (pMax.z > pMin.z)
+            p.z *= pMax.z - pMin.z;
+        return Vector3f(p + pMin);
+    }
 
     PBRT_CPU_GPU
     void BoundingSphere(Point3<T> *center, Float *radius) const {
