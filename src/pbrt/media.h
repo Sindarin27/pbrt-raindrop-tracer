@@ -516,26 +516,21 @@ class DotMedium {
                 Float radius = cellDropRadius(cellX, cellY, cellZ);
                 Vector3f center = cellDropPosition(cellX, cellY, cellZ, radius);
                 Float dropMoveDistance = dropMoveDistanceInOneFrame(radius);
-
+                
                 Float diffX = center.x - p.x;
                 Float diffZ = center.z - p.z;
                 Float diffXzSq = diffX * diffX + diffZ * diffZ;
                 if (diffXzSq > radius * radius) continue; // Definitely outside the drop
                 
-                Float diffYTop = p.y - center.y; // Y dist to center when drop is at top of its movement
-                Float diffYBottom = diffYTop - dropMoveDistance; // Y dist to center when drop is at bottom of its movement
-                bool inTopSphere = diffXzSq + diffYTop * diffYTop < radius * radius;
-                bool inBottomSphere = diffXzSq + diffYBottom * diffYBottom < radius * radius;
-                
-                // If diffYTop < 0 and diffYBottom > 0
-                if (!inTopSphere && !inBottomSphere && (diffYTop > 0 || diffYBottom < 0)) continue;
-                if (d > Float(0.000001)) Warning("Holy shit a drop collided");
                 Float halfDropHeight = std::sqrt(radius * radius - diffXzSq);
-                Float dropHeight;
-                if (inTopSphere) dropHeight = halfDropHeight - diffYTop;
-                else if (inBottomSphere) dropHeight = halfDropHeight + diffYBottom;
-                else dropHeight = 2 * halfDropHeight;
-                d = dropHeight / -dropMoveDistance;
+                
+                // Highest coordinate of the drop center at distance r from point
+                Float yHigh = std::clamp<Float>(p.y + halfDropHeight, center.y + dropMoveDistance, center.y);
+                // Lowest coordinate of the drop center at distance r from p
+                Float yLow = std::clamp<Float>(p.y - halfDropHeight, center.y + dropMoveDistance, center.y);
+                Float di = yHigh - yLow;
+                
+                d += di / -dropMoveDistance;
             }
         }
         
