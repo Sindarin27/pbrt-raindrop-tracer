@@ -980,6 +980,36 @@ add_sanitizers (rain_exe)
 
 set_property (TARGET rain_exe PROPERTY FOLDER "cmd")
 
+######################
+# Rain spread tester
+add_executable(rain_distribution_exe src/rain/generateDropsForSpeedTest.cpp)
+
+target_compile_definitions (rain_distribution_exe PRIVATE ${PBRT_DEFINITIONS})
+target_compile_options (rain_distribution_exe PRIVATE ${PBRT_CXX_FLAGS})
+target_include_directories (rain_distribution_exe PRIVATE src src/ext)
+target_link_libraries (rain_distribution_exe PRIVATE ${ALL_PBRT_LIBS} pbrt_opt pbrt_warnings)
+
+set_target_properties (rain_distribution_exe PROPERTIES OUTPUT_NAME rain_distribution)
+
+add_sanitizers (rain_distribution_exe)
+
+set_property (TARGET rain_distribution_exe PROPERTY FOLDER "cmd")
+
+######################
+# Rain sample tester
+add_executable(rain_sample_exe src/rain/sampleDropsForSpeedTest.cpp)
+
+target_compile_definitions (rain_sample_exe PRIVATE ${PBRT_DEFINITIONS})
+target_compile_options (rain_sample_exe PRIVATE ${PBRT_CXX_FLAGS})
+target_include_directories (rain_sample_exe PRIVATE src src/ext)
+target_link_libraries (rain_sample_exe PRIVATE ${ALL_PBRT_LIBS} pbrt_opt pbrt_warnings)
+
+set_target_properties (rain_sample_exe PROPERTIES OUTPUT_NAME rain_sample)
+
+add_sanitizers (rain_sample_exe)
+
+set_property (TARGET rain_sample_exe PROPERTY FOLDER "cmd")
+
 
 ######################
 # imgtool

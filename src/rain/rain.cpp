@@ -11,6 +11,8 @@
 #include <fstream>
 #include <filesystem>
 
+#define SPHERE_ONLY
+
 using Allocator = pstd::pmr::polymorphic_allocator<std::byte>;
 using namespace pbrt;
 
@@ -130,6 +132,8 @@ int main(int argc, char *argv[]) {
     NamedMaterial "water"
 )";
 
+    
+    
     // Create medium to sample from
     Allocator alloc = Allocator();
     Transform renderFromMedium = Transform(SquareMatrix<4>::Diag(1, 1, 1, 1)); // identity matrix
@@ -139,7 +143,7 @@ int main(int argc, char *argv[]) {
     Float scaleParameter = DotMedium::CalculateDsdScaleParameterCentimeterRadius(rate);
     Bounds3f mediumBounds = Bounds3f(p0, p1);
     DotMedium *medium = alloc.new_object<DotMedium>(
-            mediumBounds, renderFromMedium, sigma_a, sigma_s, 1, 0, shapeParameterInv, scaleParameter, 0xCA75 & 0xD095, alloc);
+            mediumBounds, renderFromMedium, sigma_a, sigma_s, 1, 0, shapeParameterInv, scaleParameter, 0xCA75 & 0xD095, 0, 1, alloc);
     Point3f minInMedium = Point3f(mediumBounds.Offset(min));
     Point3f maxInMedium = Point3f(mediumBounds.Offset(max));
     Float maxDimension = mediumBounds.Diagonal()[mediumBounds.MaxDimension()];
@@ -150,6 +154,22 @@ int main(int argc, char *argv[]) {
     int maxY = std::ceil(maxInMedium.y);
     int maxZ = std::ceil(maxInMedium.z);
     int dropCount = 0;
+
+    Vector3f span = maxInMedium - minInMedium;
+#ifdef SPHERE_ONLY
+    if (abs(span.x - span.y) > 0.0001f || abs(span.x - span.y) > 0.0001f) {
+        fprintf(stderr, "Area is not a cube and thus fitting a sphere would be annoying\n");
+        return 1;
+    }
+    
+    Float spanRadius = span.x * 0.5f;
+    Float spanRadiusSq = spanRadius * spanRadius;
+    Point3f spanOrigin = minInMedium + Vector3f(spanRadius, spanRadius, spanRadius);
+    
+    Float volume = 4.f / 3 * Pi * spanRadiusSq * spanRadius;
+#else
+    Float volume = span.x * span.y * span.z;
+#endif
     // Loop over every grid cell
     for (int x = minX; x <= maxX; x++) {
         Float cellX = std::floor(Float(x) + Float(0.5));
@@ -161,11 +181,16 @@ int main(int argc, char *argv[]) {
                 // Check if this cell should contain a drop
                 if (!medium->cellHasDrop(cellX, cellY, cellZ)) continue;
                 //fprintf(stderr, "Cell has drop at %f,%f,%f\n", cellX, cellY, cellZ);
-                dropCount++;
                 // Calculate stuff about the drop
                 Float radius = medium->cellDropRadius(cellX, cellY, cellZ);
-                Vector3f center = medium->cellDropPosition(cellX, cellY, cellZ, radius);
+                Point3f center = Point3f(0,0,0) + medium->cellDropPosition(cellX, cellY, cellZ, radius);
                 Float dropMoveDistance = medium->dropMoveDistanceInOneFrame(radius);
+
+#ifdef SPHERE_ONLY
+                if (DistanceSquared(center, spanOrigin) > spanRadiusSq) continue; // Only keep drops that start inside the sphere          
+#endif
+                
+                dropCount++;
                 // Write the drop to file
                 Vector3f start = mediumBounds.OffsetReverse(Point3f(center.x, center.y, center.z));
                 Vector3f end = mediumBounds.OffsetReverse(Point3f(center.x, center.y + dropMoveDistance, center.z));
@@ -187,8 +212,7 @@ AttributeEnd
 )";
     out.close();
 
-    Vector3f span = maxInMedium - minInMedium;
-    Float volume = span.x * span.y * span.z;
+
     fprintf(stderr, "Wrote %i drops to a file in a volume of %f cm^3, for %f drops per cm^3", 
             dropCount, volume, Float(dropCount) / volume);
     return 0;

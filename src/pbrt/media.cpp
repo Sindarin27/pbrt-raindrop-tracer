@@ -412,7 +412,7 @@ std::string GridMedium::ToString() const {
     // NoiseMedium Method Definitions
     DotMedium::DotMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
                              Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g, 
-                             Float shapeParameterInv, Float scaleParameter, int seed, Allocator alloc)
+                             Float shapeParameterInv, Float scaleParameter, int seed, Float discardRadius, int homogenousResolution, Allocator alloc)
             : bounds(bounds),
               renderFromMedium(renderFromMedium),
               sigma_a_spec(sigma_a, alloc),
@@ -421,9 +421,30 @@ std::string GridMedium::ToString() const {
               threshold(Float(0.999)),
               shapeParameterInv(shapeParameterInv),
               scaleParameter(scaleParameter),
-              seed(seed) {
-        sigma_a_spec.Scale(sigmaScale);
-        sigma_s_spec.Scale(sigmaScale);
+              seed(seed),
+              discardRadius(discardRadius) {
+        Float sizeScale = 1 / Length(bounds.Diagonal());
+        
+        sigma_a_spec.Scale(sigmaScale * sizeScale);
+        sigma_s_spec.Scale(sigmaScale * sizeScale);
+
+        Float homogenousStepSize = discardRadius / homogenousResolution;
+        Float previousCdf = 0;
+        lowerBoundDensity = 0;
+        for (int i = 1; i <= homogenousResolution; i++) {
+            Float radiusToTest = i * homogenousStepSize;
+            Float currentCdf = WeibullDistributionCdf(1 / shapeParameterInv, scaleParameter, radiusToTest);
+            Float cdfDifference = currentCdf - previousCdf;
+            Float expectedDropsOfRadius = 1000 * cdfDifference * radiusToTest * radiusToTest; 
+            Float dropCrossSection = Pi * radiusToTest * radiusToTest * 0.0001 /* conversion cm^2 to m^2 */;
+            
+            lowerBoundDensity += expectedDropsOfRadius * dropCrossSection;
+            
+            previousCdf = currentCdf;
+        }
+        
+        LOG_VERBOSE("Medium has discard radius %f, drops have probability %f to be below this size, simulating with volume of density %f.", discardRadius,
+                    WeibullDistributionCdf(1 / shapeParameterInv, scaleParameter, discardRadius), lowerBoundDensity);
 
         // Currently not required due to the lack of grids. But keep this in mind if we do add any grids later!
 //        volumeGridBytes += LeScale.BytesAllocated();
@@ -447,8 +468,14 @@ std::string GridMedium::ToString() const {
         std::vector<Float> density = parameters.GetFloatArray("density");
         Float rainfallRate = parameters.GetOneFloat("rate", 20.f);
         int seed = parameters.GetOneInt("seed", 0xCA75 & 0xD095);
+        Float discardRadius = parameters.GetOneFloat("discardBelowRadius", 0.005f);
+        int homogenousResolution = parameters.GetOneInt("homogenousResolution", 64);
         Float shapeParameterInv = CalculateDsdInvShapeParameter(rainfallRate);
         Float scaleParameter = CalculateDsdScaleParameterCentimeterRadius(rainfallRate);
+
+        if (homogenousResolution < 1)
+            ErrorExit(loc, "homogenousResolution needs to be >=1.");
+
 //        size_t nDensity;
 //        if (density.empty())
 //            ErrorExit(loc, "No \"density\" value provided for grid medium.");
@@ -479,7 +506,7 @@ std::string GridMedium::ToString() const {
         Float sigmaScale = parameters.GetOneFloat("scale", 1.f);
         
         return alloc.new_object<DotMedium>(
-                Bounds3f(p0, p1), renderFromMedium, sigma_a, sigma_s, sigmaScale, g, shapeParameterInv, scaleParameter, seed, alloc);
+                Bounds3f(p0, p1), renderFromMedium, sigma_a, sigma_s, sigmaScale, g, shapeParameterInv, scaleParameter, seed, discardRadius, homogenousResolution, alloc);
     }
 
         std::string DotMedium::ToString() const {

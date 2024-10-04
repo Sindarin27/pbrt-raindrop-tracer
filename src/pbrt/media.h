@@ -34,7 +34,7 @@
 #include <vector>
 // When defined, drops are confined to the grid. Otherwise, drops can move into adjacent grid cells.
 // The second option is expected to provide a better spread of drops.
-//#define DROPS_CONFINED_TO_GRID_CELLS
+#define DROPS_CONFINED_TO_GRID_CELLS
 namespace pbrt {
 
 // Media Function Declarations
@@ -443,7 +443,7 @@ class DotMedium {
     // GridMedium Public Methods
     DotMedium(const Bounds3f &bounds, const Transform &renderFromMedium,
                Spectrum sigma_a, Spectrum sigma_s, Float sigmaScale, Float g,
-              Float shapeParameterInv, Float scaleParameter, int seed, Allocator alloc);
+              Float shapeParameterInv, Float scaleParameter, int seed, Float discardRadius, int homogenousResolution, Allocator alloc);
 
     static DotMedium *Create(const ParameterDictionary &parameters,
                               const Transform &renderFromMedium, const FileLoc *loc,
@@ -478,7 +478,7 @@ class DotMedium {
     inline float cellDropRadius(const Float cellX, const Float cellY, const Float cellZ) const {
         Float uniformRandom = HashFloat(cellX, cellY, cellZ, 5, seed);
         Float radiusSampled = SampleWeibullDistributionWithInverseShape(shapeParameterInv, scaleParameter, uniformRandom);
-        return std::min(radiusSampled, Float(0.5));
+        return std::min(radiusSampled, cutoffRadius);
     }
     
     PBRT_CPU_GPU
@@ -494,11 +494,12 @@ class DotMedium {
 
         // Scale scattering coefficients by medium density at _p_
         p = renderFromMedium.ApplyInverse(p);
+        
         p = Point3f(bounds.Offset(p));
         Float sampleCellX = std::floor(p.x + Float(0.5)),
               sampleCellY = std::floor(p.y + Float(0.5)),
               sampleCellZ = std::floor(p.z + Float(0.5));
-        Float d = 0;
+        Float d_a = 0, d_s = 0;
 #ifdef DROPS_CONFINED_TO_GRID_CELLS
         Float cellX = sampleCellX;
         Float cellZ = sampleCellZ;
@@ -514,10 +515,12 @@ class DotMedium {
 
                 // Calculate position of raindrop
                 Float radius = cellDropRadius(cellX, cellY, cellZ);
+                if (radius < discardRadius) continue; // Very small drops get discarded
                 Vector3f center = cellDropPosition(cellX, cellY, cellZ, radius);
                 Float dropMoveDistance = dropMoveDistanceInOneFrame(radius);
                 
                 Float diffX = center.x - p.x;
+                Float diffY = center.y - p.y;
                 Float diffZ = center.z - p.z;
                 Float diffXzSq = diffX * diffX + diffZ * diffZ;
                 if (diffXzSq > radius * radius) continue; // Definitely outside the drop
@@ -525,24 +528,38 @@ class DotMedium {
                 Float halfDropHeight = std::sqrt(radius * radius - diffXzSq);
                 
                 // Highest coordinate of the drop center at distance r from point
-                Float yHigh = std::clamp<Float>(p.y + halfDropHeight, center.y + dropMoveDistance, center.y);
+                Float yHigh = std::clamp<Float>(+ halfDropHeight, diffY + dropMoveDistance, diffY);
                 // Lowest coordinate of the drop center at distance r from p
-                Float yLow = std::clamp<Float>(p.y - halfDropHeight, center.y + dropMoveDistance, center.y);
+                Float yLow = std::clamp<Float>(- halfDropHeight, diffY + dropMoveDistance, diffY);
                 Float di = yHigh - yLow;
-                
-                d += di / -dropMoveDistance;
+
+                if (d_s > Float(0.000001) && di > Float(0.000001)) LOG_VERBOSE("Holy shit multiple drops passing through one point");
+
+                d_a += di / (-dropMoveDistance);
+                d_s += di / (-dropMoveDistance * radius);
             }
         }
         
-        sigma_a *= d;
-        sigma_s *= d;
+        d_a += lowerBoundDensity;
+        d_s += lowerBoundDensity;
+        
+        sigma_a *= d_a;
+        sigma_s *= d_s;
 
         // Compute grid emission _Le_ at _p_
         SampledSpectrum Le(Float(0));
 
         return MediumProperties{sigma_a, sigma_s, &phase, Le};
     }
-    
+
+    PBRT_CPU_GPU
+    static Float WeibullDistributionCdf(Float shape, Float scale, Float x) {
+        if (x < 0) return 0;
+        Float pow = std::pow(x/scale, shape);
+        Float exp = std::exp(-pow);
+        return 1 - exp;
+    }
+        
     /// \param invShape Shape parameter of the Weibull distribution, inverse (^-1). 
     /// \param scale Scale parameter of the Weibull distribution.
     /// \param u Sample parameter uniformly generated between 0 and 1
@@ -637,9 +654,11 @@ class DotMedium {
         PBRT_CPU_GPU
         HomogeneousMajorantIterator SampleRay(Ray ray, Float tMax,
                                               const SampledWavelengths &lambda) const {
-            SampledSpectrum sigma_a = Float(0.0625) * sigma_a_spec.Sample(lambda);
-            SampledSpectrum sigma_s = Float(0.0625) * sigma_s_spec.Sample(lambda);
-            return HomogeneousMajorantIterator(0, tMax, sigma_a + sigma_s);
+            Float minDensity = lowerBoundDensity;
+            Float maxDensity = minDensity + 5 / -dropMoveDistanceInOneFrame(discardRadius);
+            SampledSpectrum sigma_a_max = maxDensity * sigma_a_spec.Sample(lambda);
+            SampledSpectrum sigma_s_max = maxDensity * sigma_s_spec.Sample(lambda);
+            return HomogeneousMajorantIterator(0, tMax, sigma_a_max + sigma_s_max);
         }
 
   private:
@@ -652,6 +671,9 @@ class DotMedium {
     Float scaleParameter, shapeParameterInv;
     int seed;
     Float invShutterSpeed = 1.f / 100.f;
+    Float cutoffRadius = 0.5f;
+    Float discardRadius;
+    Float lowerBoundDensity;
 //    MajorantGrid majorantGrid;
 };
 
