@@ -655,7 +655,7 @@ class DotMedium {
         HomogeneousMajorantIterator SampleRay(Ray ray, Float tMax,
                                               const SampledWavelengths &lambda) const {
             Float minDensity = lowerBoundDensity;
-            Float maxDensity = minDensity + 5 / -dropMoveDistanceInOneFrame(discardRadius);
+            Float maxDensity = minDensity + 2 / -dropMoveDistanceInOneFrame(discardRadius);
             SampledSpectrum sigma_a_max = maxDensity * sigma_a_spec.Sample(lambda);
             SampledSpectrum sigma_s_max = maxDensity * sigma_s_spec.Sample(lambda);
             return HomogeneousMajorantIterator(0, tMax, sigma_a_max + sigma_s_max);

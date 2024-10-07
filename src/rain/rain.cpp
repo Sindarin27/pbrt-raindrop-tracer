@@ -154,10 +154,11 @@ int main(int argc, char *argv[]) {
     int maxY = std::ceil(maxInMedium.y);
     int maxZ = std::ceil(maxInMedium.z);
     int dropCount = 0;
+    int stationaryDrops = 0;
 
     Vector3f span = maxInMedium - minInMedium;
 #ifdef SPHERE_ONLY
-    if (abs(span.x - span.y) > 0.0001f || abs(span.x - span.y) > 0.0001f) {
+    if (abs(span.x - span.y) > 0.001f || abs(span.x - span.z) > 0.001f) {
         fprintf(stderr, "Area is not a cube and thus fitting a sphere would be annoying\n");
         return 1;
     }
@@ -173,6 +174,7 @@ int main(int argc, char *argv[]) {
     // Loop over every grid cell
     for (int x = minX; x <= maxX; x++) {
         Float cellX = std::floor(Float(x) + Float(0.5));
+        fprintf(stdout, "x %i/%i\n", x, maxX);
         for (int y = minY; y <= maxY; y++) {
             Float cellY = std::floor(Float(y) + Float(0.5));
             for (int z = minZ; z <= maxZ; z++) {
@@ -185,6 +187,7 @@ int main(int argc, char *argv[]) {
                 Float radius = medium->cellDropRadius(cellX, cellY, cellZ);
                 Point3f center = Point3f(0,0,0) + medium->cellDropPosition(cellX, cellY, cellZ, radius);
                 Float dropMoveDistance = medium->dropMoveDistanceInOneFrame(radius);
+                bool isAnimated = dropMoveDistance < -0.0001f;
 
 #ifdef SPHERE_ONLY
                 if (DistanceSquared(center, spanOrigin) > spanRadiusSq) continue; // Only keep drops that start inside the sphere          
@@ -194,14 +197,23 @@ int main(int argc, char *argv[]) {
                 // Write the drop to file
                 Vector3f start = mediumBounds.OffsetReverse(Point3f(center.x, center.y, center.z));
                 Vector3f end = mediumBounds.OffsetReverse(Point3f(center.x, center.y + dropMoveDistance, center.z));
-                out << "AttributeBegin\n"
-                    << "    ActiveTransform StartTime\n"
-                    << "        Translate " << start.x << " " << start.y << " " << start.z << " \n"
-                    << "    ActiveTransform EndTime\n"
-                    << "        Translate " << end.x << " " << end.y << " " << end.z << " \n"
-                    << "    ActiveTransform All\n"
-                    << R"(    Shape "sphere" "float radius" [)" << radius * maxDimension << "] \n"
-                    << "AttributeEnd\n";
+                if (isAnimated) {
+                    out << "AttributeBegin\n"
+                        << "    ActiveTransform StartTime\n"
+                        << "        Translate " << start.x << " " << start.y << " " << start.z << " \n"
+                        << "    ActiveTransform EndTime\n"
+                        << "        Translate " << end.x << " " << end.y << " " << end.z << " \n"
+                        << "    ActiveTransform All\n"
+                        << R"(    Shape "sphere" "float radius" [)" << radius * maxDimension << "] \n"
+                        << "AttributeEnd\n";
+                }
+                else { // Drop moves so little that PBRT would complain about it and crash. Make it stationary.
+                    stationaryDrops++;
+                    out << "AttributeBegin\n"
+                        << "        Translate " << start.x << " " << start.y << " " << start.z << " \n"
+                        << R"(    Shape "sphere" "float radius" [)" << radius * maxDimension << "] \n"
+                        << "AttributeEnd\n";
+                }
             }
         }
     }
@@ -213,7 +225,7 @@ AttributeEnd
     out.close();
 
 
-    fprintf(stderr, "Wrote %i drops to a file in a volume of %f cm^3, for %f drops per cm^3", 
-            dropCount, volume, Float(dropCount) / volume);
+    fprintf(stderr, "Wrote %i drops to a file in a volume of %f cm^3, for %f drops per cm^3. %i drops are stationary.", 
+            dropCount, volume, Float(dropCount) / volume, stationaryDrops);
     return 0;
 }
